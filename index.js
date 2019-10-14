@@ -331,4 +331,20 @@ Notifications.clearAllNotifications = function() {
 	return this.callNative('clearAllNotifications', arguments)
 }
 
+/**
+ * Open Notifications settings
+ * @param {Object}		ex: {
+ *                            soundName: 'soundName',
+ *                            previousSoundName: 'previousSoundName',
+ *                            shouldDeletePreviousChannel: true,
+ *                          }
+ */
+Notifications.openNotificationSettings = function(details: Object) {
+    if (Platform.OS === 'ios') {
+        Linking.openURL('app-settings:');
+    } else {
+        this.handler.openNotificationSettings(details);
+    }
+};
+
 module.exports = Notifications;

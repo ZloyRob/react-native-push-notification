@@ -20,9 +20,11 @@ import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.support.v4.app.NotificationCompat;
 import android.util.Log;
 
+import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReadableMap;
 
 import org.json.JSONArray;
@@ -44,6 +46,7 @@ public class RNPushNotificationHelper {
     private Context context;
     private RNPushNotificationConfig config;
     private final SharedPreferences scheduledNotificationsPersistence;
+    private static final int REQUEST_CODE = 1;
     private static final int ONE_MINUTE = 60 * 1000;
     private static final long ONE_HOUR = 60 * ONE_MINUTE;
     private static final long ONE_DAY = 24 * ONE_HOUR;
@@ -282,25 +285,8 @@ public class RNPushNotificationHelper {
             bundle.putBoolean("userInteraction", true);
             intent.putExtra("notification", bundle);
 
-            Uri soundUri = null;
+            Uri soundUri = getSoundUri(bundle);
             if (!bundle.containsKey("playSound") || bundle.getBoolean("playSound")) {
-                soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                if (!isDefaultNotificationSound(soundName)) {
-
-                    // sound name can be full filename, or just the resource name.
-                    // So the strings 'my_sound.mp3' AND 'my_sound' are accepted
-                    // The reason is to make the iOS and android javascript interfaces compatible
-
-                    int resId;
-                    if (context.getResources().getIdentifier(soundName, "raw", context.getPackageName()) != 0) {
-                        resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
-                    } else {
-                        soundName = soundName.substring(0, soundName.lastIndexOf('.'));
-                        resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
-                    }
-
-                    soundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + resId);
-                }
                 if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                     notification.setSound(soundUri);
                 }
@@ -632,5 +618,55 @@ public class RNPushNotificationHelper {
         }
 
         manager.createNotificationChannel(channel);
+    }
+
+    public void openNotificationSettings(ReactContext reactContext, Bundle bundle) {
+        String packageName = context.getPackageName();
+        Intent intent = new Intent();
+
+        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            checkOrCreateChannel(notificationManager(), bundle, getSoundUri(bundle));
+            intent.setAction("android.settings.CHANNEL_NOTIFICATION_SETTINGS");
+            intent.putExtra("android.provider.extra.APP_PACKAGE", packageName);
+            intent.putExtra("app_package", packageName);
+            intent.putExtra("app_uid", context.getApplicationInfo().uid);
+            intent.putExtra("android.provider.extra.CHANNEL_ID", getNotificationChannelId(bundle.getString("soundName")));
+        } else if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            intent.setAction("android.settings.APP_NOTIFICATION_SETTINGS");
+            intent.putExtra("android.provider.extra.APP_PACKAGE", packageName);
+            intent.putExtra("app_package", packageName);
+            intent.putExtra("app_uid", context.getApplicationInfo().uid);
+        } else {
+            intent.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.addCategory(Intent.CATEGORY_DEFAULT);
+            intent.setData(Uri.parse("package:" + packageName));
+        }
+
+        reactContext.startActivityForResult(intent, REQUEST_CODE, null);
+    }
+
+    private Uri getSoundUri(Bundle bundle) {
+        Uri soundUri = null;
+        if (!bundle.containsKey("playSound") || bundle.getBoolean("playSound")) {
+            String soundName = bundle.getString("soundName");
+            soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            if (!isDefaultNotificationSound(soundName)) {
+
+                // sound name can be full filename, or just the resource name.
+                // So the strings 'my_sound.mp3' AND 'my_sound' are accepted
+                // The reason is to make the iOS and android javascript interfaces compatible
+
+                int resId;
+                if (context.getResources().getIdentifier(soundName, "raw", context.getPackageName()) != 0) {
+                    resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
+                } else {
+                    soundName = soundName.substring(0, soundName.lastIndexOf('.'));
+                    resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
+                }
+
+                soundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + resId);
+            }
+        }
+        return soundUri;
     }
 }
