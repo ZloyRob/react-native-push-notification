@@ -209,7 +209,8 @@ public class RNPushNotificationHelper {
                 }
             }
 
-            NotificationCompat.Builder notification = new NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
+            String soundName = bundle.getString("soundName");
+            NotificationCompat.Builder notification = new NotificationCompat.Builder(context, getNotificationChannelId(soundName))
                     .setContentTitle(title)
                     .setTicker(bundle.getString("ticker"))
                     .setVisibility(visibility)
@@ -284,28 +285,23 @@ public class RNPushNotificationHelper {
             Uri soundUri = null;
             if (!bundle.containsKey("playSound") || bundle.getBoolean("playSound")) {
                 soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                String soundName = bundle.getString("soundName");
-                if (soundName != null) {
-                    if (!"default".equalsIgnoreCase(soundName)) {
+                if (!isDefaultNotificationSound(soundName)) {
 
-                        // sound name can be full filename, or just the resource name.
-                        // So the strings 'my_sound.mp3' AND 'my_sound' are accepted
-                        // The reason is to make the iOS and android javascript interfaces compatible
+                    // sound name can be full filename, or just the resource name.
+                    // So the strings 'my_sound.mp3' AND 'my_sound' are accepted
+                    // The reason is to make the iOS and android javascript interfaces compatible
 
-                        int resId;
-                        if (context.getResources().getIdentifier(soundName, "raw", context.getPackageName()) != 0) {
-                            resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
-                        } else {
-                            soundName = soundName.substring(0, soundName.lastIndexOf('.'));
-                            resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
-                        }
-
-                        soundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + resId);
+                    int resId;
+                    if (context.getResources().getIdentifier(soundName, "raw", context.getPackageName()) != 0) {
+                        resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
+                    } else {
+                        soundName = soundName.substring(0, soundName.lastIndexOf('.'));
+                        resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
                     }
+
+                    soundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + resId);
                 }
-                if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    notification.setChannelId(NOTIFICATION_CHANNEL_ID);
-                } else {
+                if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                     notification.setSound(soundUri);
                 }
             }
@@ -332,7 +328,7 @@ public class RNPushNotificationHelper {
                     PendingIntent.FLAG_UPDATE_CURRENT);
 
             NotificationManager notificationManager = notificationManager();
-            checkOrCreateChannel(notificationManager, soundUri);
+            checkOrCreateChannel(notificationManager, bundle, soundUri);
 
             notification.setContentIntent(pendingIntent);
 
@@ -556,24 +552,39 @@ public class RNPushNotificationHelper {
         }
     }
 
-    private void checkOrCreateChannel(NotificationManager manager, Uri soundUri) {
+    private String getNotificationChannelId(String soundName) {
+        return isDefaultNotificationSound(soundName) ?
+                NOTIFICATION_CHANNEL_ID : NOTIFICATION_CHANNEL_ID + '-' + soundName;
+    }
+
+    private Boolean isDefaultNotificationSound(String soundName) {
+        return soundName == null || "default".equalsIgnoreCase(soundName);
+    }
+
+    private Boolean shouldDeletePreviousChannel(NotificationManager manager, Bundle bundle) {
+        return  Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bundle.getBoolean("shouldDeletePreviousChannel") &&
+                manager.getNotificationChannel(getNotificationChannelId(bundle.getString("previousSoundName"))) != null;
+    }
+
+    private void checkOrCreateChannel(NotificationManager manager, Bundle bundle, Uri soundUri) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
             return;
         if (manager == null)
             return;
 
-        NotificationChannel oldcChannel = manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID);
-
-        if (oldcChannel != null) {
-            Uri channelSoundUri = oldcChannel.getSound();
-            if (channelSoundUri == soundUri) {
-                return;
-            } else {
-                manager.deleteNotificationChannel(NOTIFICATION_CHANNEL_ID);
-            }
+        if (shouldDeletePreviousChannel(manager, bundle)) {
+            manager.deleteNotificationChannel(getNotificationChannelId(bundle.getString("previousSoundName")));
         }
 
-        Bundle bundle = new Bundle();
+        String soundName = bundle.getString("soundName");
+        NotificationChannel currentChannel = manager.getNotificationChannel(getNotificationChannelId(soundName));
+
+        if (currentChannel != null) {
+            return;
+        }
+
+        String channelName = this.config.getChannelName() != null ? this.config.getChannelName() : "rn-push-notification-channel";
+        channelName = soundName != null ? channelName + "-" + soundName : channelName + "-default";
 
         int importance = NotificationManager.IMPORTANCE_HIGH;
         final String importanceString = bundle.getString("importance");
@@ -606,7 +617,7 @@ public class RNPushNotificationHelper {
             }
         }
 
-        NotificationChannel channel = new NotificationChannel(NOTIFICATION_CHANNEL_ID, this.config.getChannelName() != null ? this.config.getChannelName() : "rn-push-notification-channel", importance);
+        NotificationChannel channel = new NotificationChannel(getNotificationChannelId(soundName), channelName, importance);
 
         channel.setDescription(this.config.getChannelDescription());
         channel.enableLights(true);
